@@ -21,7 +21,7 @@ class LANG(object):
     ABOUT_TEXT = """
 <b>⚜ ᴍʏ ɴᴀᴍᴇ : {}</b>\n
 <b>✦ ᴠᴇʀsɪᴏɴ : {}</b>
-<b>✦ ᴜᴘᴅᴀᴛᴇᴅ ᴏɴ : 02-Aug-2025</b>
+<b>✦ ᴜᴘᴅᴀᴛᴇᴅ ᴏɴ : 10-MAR-2026</b>
 <b>✦ ᴅᴇᴠᴇʟᴏᴘᴇʀ : <a href='https://telegram.me/Nahom_d54'>Nahom D54</a></b>\n
 """
 
