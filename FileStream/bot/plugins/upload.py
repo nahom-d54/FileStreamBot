@@ -144,7 +144,9 @@ async def url_upload_handler(bot: Client, message: Message):
 
         # Store in DB and generate stream link (same as regular file handler)
         inserted_id = await db.add_file(get_file_info(sent_msg))
-        await get_file_ids(False, inserted_id, multi_clients, sent_msg)
+        await get_file_ids(
+            False, inserted_id, multi_clients, sent_msg, requester=message
+        )
         reply_markup, stream_text = await gen_link(_id=inserted_id)
 
         await status_msg.edit_text(

@@ -1,25 +1,31 @@
 from __future__ import annotations
+
 import logging
 from datetime import datetime
-from pyrogram import Client
 from typing import Any, Optional
 
-from pyrogram.enums import ParseMode, ChatType
-from pyrogram.types import Message
+from pyrogram import Client
+from pyrogram.enums import ChatType, ParseMode
 from pyrogram.file_id import FileId
+from pyrogram.types import Message
+
 from FileStream.bot import FileStream
+from FileStream.config import Server, Telegram
 from FileStream.utils.database import Database
-from FileStream.config import Telegram, Server
 
 db = Database(Telegram.DATABASE_URL, Telegram.SESSION_NAME)
 
 
-async def get_file_ids(client: Client | bool, db_id: str, multi_clients, message) -> Optional[FileId]:
+async def get_file_ids(
+    client: Client | bool, db_id: str, multi_clients, message, requester=None
+) -> Optional[FileId]:
     logging.debug("Starting of get_file_ids")
     file_info = await db.get_file(db_id)
     if (not "file_ids" in file_info) or not client:
         logging.debug("Storing file_id of all clients in DB")
-        log_msg = await send_file(FileStream, db_id, file_info['file_id'], message)
+        log_msg = await send_file(
+            FileStream, db_id, file_info["file_id"], message, requester=requester
+        )
         await db.update_file_ids(db_id, await update_file_id(log_msg.id, multi_clients))
         logging.debug("Stored file_id of all clients in DB")
         if not client:
@@ -29,7 +35,9 @@ async def get_file_ids(client: Client | bool, db_id: str, multi_clients, message
     file_id_info = file_info.setdefault("file_ids", {})
     if not str(client.id) in file_id_info:
         logging.debug("Storing file_id in DB")
-        log_msg = await send_file(FileStream, db_id, file_info['file_id'], message)
+        log_msg = await send_file(
+            FileStream, db_id, file_info["file_id"], message, requester=requester
+        )
         msg = await client.get_messages(Telegram.FLOG_CHANNEL, log_msg.id)
         media = get_media_from_message(msg)
         file_id_info[str(client.id)] = getattr(media, "file_id", "")
@@ -38,10 +46,10 @@ async def get_file_ids(client: Client | bool, db_id: str, multi_clients, message
 
     logging.debug("Middle of get_file_ids")
     file_id = FileId.decode(file_id_info[str(client.id)])
-    setattr(file_id, "file_size", file_info['file_size'])
-    setattr(file_id, "mime_type", file_info['mime_type'])
-    setattr(file_id, "file_name", file_info['file_name'])
-    setattr(file_id, "unique_id", file_info['file_unique_id'])
+    setattr(file_id, "file_size", file_info["file_size"])
+    setattr(file_id, "mime_type", file_info["mime_type"])
+    setattr(file_id, "file_name", file_info["file_name"])
+    setattr(file_id, "unique_id", file_info["file_unique_id"])
     logging.debug("Ending of get_file_ids")
     return file_id
 
@@ -85,9 +93,13 @@ def get_name(media_msg: Message | FileId) -> str:
             media_type = "file"
 
         formats = {
-            "photo": "jpg", "audio": "mp3", "voice": "ogg",
-            "video": "mp4", "animation": "mp4", "video_note": "mp4",
-            "sticker": "webp"
+            "photo": "jpg",
+            "audio": "mp3",
+            "voice": "ogg",
+            "video": "mp4",
+            "animation": "mp4",
+            "video_note": "mp4",
+            "sticker": "webp",
         }
 
         ext = formats.get(media_type)
@@ -111,7 +123,7 @@ def get_file_info(message):
         "file_unique_id": getattr(media, "file_unique_id", ""),
         "file_name": get_name(message),
         "file_size": getattr(media, "file_size", 0),
-        "mime_type": getattr(media, "mime_type", "None/unknown")
+        "mime_type": getattr(media, "mime_type", "None/unknown"),
     }
 
 
@@ -125,20 +137,27 @@ async def update_file_id(msg_id, multi_clients):
     return file_ids
 
 
-async def send_file(client: Client, db_id, file_id: str, message):
-    file_caption = getattr(message, 'caption', None) or get_name(message)
-    log_msg = await client.send_cached_media(chat_id=Telegram.FLOG_CHANNEL, file_id=file_id,
-                                             caption=f'**{file_caption}**')
+async def send_file(client: Client, db_id, file_id: str, message, requester=None):
+    file_caption = getattr(message, "caption", None) or get_name(message)
+    log_msg = await client.send_cached_media(
+        chat_id=Telegram.FLOG_CHANNEL, file_id=file_id, caption=f"**{file_caption}**"
+    )
 
-    if message.chat.type == ChatType.PRIVATE:
+    req = requester if requester else message
+    if req.chat.type == ChatType.PRIVATE:
         await log_msg.reply_text(
-            text=f"**RᴇQᴜᴇꜱᴛᴇᴅ ʙʏ :** [{message.from_user.first_name}](tg://user?id={message.from_user.id})\n**Uꜱᴇʀ ɪᴅ :** `{message.from_user.id}`\n**Fɪʟᴇ ɪᴅ :** `{db_id}`",
-            disable_web_page_preview=True, parse_mode=ParseMode.MARKDOWN, quote=True)
+            text=f"**RᴇQᴜᴇꜱᴛᴇᴅ ʙʏ :** [{req.from_user.first_name}](tg://user?id={req.from_user.id})\n**Uꜱᴇʀ ɪᴅ :** `{req.from_user.id}`\n**Fɪʟᴇ ɪᴅ :** `{db_id}`",
+            disable_web_page_preview=True,
+            parse_mode=ParseMode.MARKDOWN,
+            quote=True,
+        )
     else:
         await log_msg.reply_text(
-            text=f"**RᴇQᴜᴇꜱᴛᴇᴅ ʙʏ :** {message.chat.title} \n**Cʜᴀɴɴᴇʟ ɪᴅ :** `{message.chat.id}`\n**Fɪʟᴇ ɪᴅ :** `{db_id}`",
-            disable_web_page_preview=True, parse_mode=ParseMode.MARKDOWN, quote=True)
+            text=f"**RᴇQᴜᴇꜱᴛᴇᴅ ʙʏ :** {req.chat.title} \n**Cʜᴀɴɴᴇʟ ɪᴅ :** `{req.chat.id}`\n**Fɪʟᴇ ɪᴅ :** `{db_id}`",
+            disable_web_page_preview=True,
+            parse_mode=ParseMode.MARKDOWN,
+            quote=True,
+        )
 
     return log_msg
     # return await client.send_cached_media(Telegram.BIN_CHANNEL, file_id)
-
