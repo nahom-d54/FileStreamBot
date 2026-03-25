@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+import shlex
 import time
 
 from pyrogram import Client, filters
@@ -20,6 +21,36 @@ db = Database(Telegram.DATABASE_URL, Telegram.SESSION_NAME)
 
 DOWNLOAD_DIR = os.path.join(os.getcwd(), "downloads")
 URL_PATTERN = re.compile(r"https?://\S+")
+
+
+def _parse_upload_args(command_text: str):
+    """Parse /upload command text and return (url, cookie_header)."""
+    try:
+        parts = shlex.split(command_text or "")
+    except ValueError:
+        return None, None
+
+    if len(parts) < 2:
+        return None, None
+
+    url = parts[1].strip()
+    cookie_header = None
+
+    i = 2
+    while i < len(parts):
+        arg = parts[i]
+        if arg in ("--cookie", "-c"):
+            if i + 1 < len(parts):
+                cookie_header = parts[i + 1]
+                i += 2
+                continue
+            cookie_header = ""
+            break
+        if arg.startswith("--cookie="):
+            cookie_header = arg.split("=", 1)[1]
+        i += 1
+
+    return url, cookie_header
 
 
 async def _progress_message(status_msg, start_time):
@@ -53,19 +84,27 @@ async def url_upload_handler(bot: Client, message: Message):
     if not await verify_user(bot, message):
         return
 
-    # Extract URL from command arguments
-    if len(message.command) < 2:
+    # Extract URL and optional cookie argument
+    url, cookie_header = _parse_upload_args(message.text or "")
+    if not url:
         await message.reply_text(
-            "<b>⚠ Usᴀɢᴇ:</b> <code>/upload https://example.com/file.mp4</code>",
+            '<b>⚠ Usᴀɢᴇ:</b> <code>/upload https://example.com/file.mp4 --cookie "name=value; key=value"</code>',
             parse_mode=ParseMode.HTML,
             quote=True,
         )
         return
 
-    url = message.command[1].strip()
     if not URL_PATTERN.match(url):
         await message.reply_text(
             "<b>⚠ Iɴᴠᴀʟɪᴅ URL.</b> Pʟᴇᴀsᴇ sᴇɴᴅ ᴀ ᴠᴀʟɪᴅ HTTP/HTTPS ʟɪɴᴋ.",
+            parse_mode=ParseMode.HTML,
+            quote=True,
+        )
+        return
+
+    if cookie_header == "":
+        await message.reply_text(
+            '<b>⚠ Mɪssɪɴɢ ᴄᴏᴏᴋɪᴇ ᴠᴀʟᴜᴇ.</b> Usᴇ <code>--cookie "name=value; key=value"</code>.',
             parse_mode=ParseMode.HTML,
             quote=True,
         )
@@ -81,7 +120,10 @@ async def url_upload_handler(bot: Client, message: Message):
         progress_cb = await _progress_message(status_msg, start_time)
 
         file_path, file_name, file_size, mime_type = await download_from_url(
-            url, DOWNLOAD_DIR, progress_callback=progress_cb
+            url,
+            DOWNLOAD_DIR,
+            progress_callback=progress_cb,
+            cookie_header=cookie_header,
         )
 
         await status_msg.edit_text(

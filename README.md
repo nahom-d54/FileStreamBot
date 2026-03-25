@@ -182,6 +182,7 @@ PUBLIC_URL = https://files.example.com
 /unban      : To Unban Any Channel or User to use bot. [ADMIN]
 /status     : To Get Bot Status and Total Users. [ADMIN]
 /broadcast  : To Broadcast any message to all users of bot. [ADMIN]
+/upload     : Upload from URL, supports protected links via --cookie.
 ```
 
 #### 🍟 Channel Support :

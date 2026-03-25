@@ -36,7 +36,12 @@ def _extract_filename(
     return f"download{ext}" if ext else "download"
 
 
-async def download_from_url(url: str, download_dir: str, progress_callback=None):
+async def download_from_url(
+    url: str,
+    download_dir: str,
+    progress_callback=None,
+    cookie_header: str | None = None,
+):
     """
     Download a file from a URL with size validation.
     Returns (file_path, file_name, file_size, mime_type) or raises an exception.
@@ -44,8 +49,12 @@ async def download_from_url(url: str, download_dir: str, progress_callback=None)
     os.makedirs(download_dir, exist_ok=True)
     timeout = aiohttp.ClientTimeout(total=3600, connect=30)
 
+    headers = {}
+    if cookie_header:
+        headers["Cookie"] = cookie_header
+
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.get(url, allow_redirects=True) as resp:
+        async with session.get(url, allow_redirects=True, headers=headers) as resp:
             if resp.status != 200:
                 raise ValueError(f"Failed to download: HTTP {resp.status}")
 
