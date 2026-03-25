@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from pyrogram import Client
 from pyrogram.enums import ChatType, ParseMode
+from pyrogram.errors import MediaEmpty
 from pyrogram.file_id import FileId
 from pyrogram.types import Message
 
@@ -138,10 +139,29 @@ async def update_file_id(msg_id, multi_clients):
 
 
 async def send_file(client: Client, db_id, file_id: str, message, requester=None):
+    """Send incoming media to the file log channel with a robust fallback path.
+
+    Primary path uses send_cached_media for speed. Some Telegram media/file_id
+    combinations can sporadically return MEDIA_EMPTY; in that case we fallback
+    to copying the original message directly.
+    """
     file_caption = getattr(message, "caption", None) or get_name(message)
-    log_msg = await client.send_cached_media(
-        chat_id=Telegram.FLOG_CHANNEL, file_id=file_id, caption=f"**{file_caption}**"
-    )
+
+    try:
+        if not file_id:
+            raise MediaEmpty("Empty file_id received while logging media")
+
+        log_msg = await client.send_cached_media(
+            chat_id=Telegram.FLOG_CHANNEL,
+            file_id=file_id,
+            caption=f"**{file_caption}**",
+        )
+    except MediaEmpty:
+        logging.warning(
+            "send_cached_media failed with MEDIA_EMPTY for db_id=%s. Falling back to message.copy().",
+            db_id,
+        )
+        log_msg = await message.copy(chat_id=Telegram.FLOG_CHANNEL)
 
     req = requester if requester else message
     if req.chat.type == ChatType.PRIVATE:

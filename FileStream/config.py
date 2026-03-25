@@ -5,6 +5,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _normalize_base_url(raw_url: str, has_ssl: bool) -> str:
+    """Return a normalized base URL that always includes scheme and trailing slash."""
+    url = (raw_url or "").strip().rstrip("/")
+    if not url:
+        return ""
+
+    if not url.startswith(("http://", "https://")):
+        scheme = "https" if has_ssl else "http"
+        url = f"{scheme}://{url}"
+
+    return f"{url}/"
+
+
 class Telegram:
     API_ID = int(env.get("API_ID"))
     API_HASH = str(env.get("API_HASH"))
@@ -38,6 +51,7 @@ class Server:
     HAS_SSL = str(env.get("HAS_SSL", "0").lower()) in ("1", "true", "t", "yes", "y")
     NO_PORT = str(env.get("NO_PORT", "0").lower()) in ("1", "true", "t", "yes", "y")
     FQDN = str(env.get("FQDN", BIND_ADDRESS))
-    URL = "http{}://{}{}/".format(
+    PUBLIC_URL = _normalize_base_url(str(env.get("PUBLIC_URL", "")), HAS_SSL)
+    URL = PUBLIC_URL or "http{}://{}{}/".format(
         "s" if HAS_SSL else "", FQDN, "" if NO_PORT else ":" + str(PORT)
     )
