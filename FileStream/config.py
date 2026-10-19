@@ -49,6 +49,12 @@ class Server:
     BIND_ADDRESS = str(env.get("BIND_ADDRESS", "0.0.0.0"))
     PING_INTERVAL = int(env.get("PING_INTERVAL", "1200"))
     HAS_SSL = str(env.get("HAS_SSL", "0").lower()) in ("1", "true", "t", "yes", "y")
+    # How long short /dl links may be cached before the database is consulted again
+    STREAM_REDIRECT_TTL = int(env.get("STREAM_REDIRECT_TTL", "3600"))
+    # Persistent secret used to sign self-contained stream URLs. When unset a
+    # random one is generated once and stored in the database, so links survive
+    # restarts and rotating API_HASH.
+    STREAM_SECRET = str(env.get("STREAM_SECRET", ""))
     NO_PORT = str(env.get("NO_PORT", "0").lower()) in ("1", "true", "t", "yes", "y")
     FQDN = str(env.get("FQDN", BIND_ADDRESS))
     PUBLIC_URL = _normalize_base_url(str(env.get("PUBLIC_URL", "")), HAS_SSL)

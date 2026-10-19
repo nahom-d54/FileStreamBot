@@ -1,6 +1,7 @@
 import sys
 import asyncio
 import logging
+import secrets
 import traceback
 import logging.handlers as handlers
 from FileStream.config import Telegram, Server
@@ -10,6 +11,8 @@ from pyrogram import idle
 from FileStream.bot import FileStream
 from FileStream.server import web_server
 from FileStream.bot.clients import initialize_clients
+from FileStream.utils.database import Database
+from FileStream.utils.stream_link import configure_secret
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,6 +28,26 @@ logging.getLogger("aiohttp.web").setLevel(logging.ERROR)
 server = web.AppRunner(web_server())
 
 loop = asyncio.get_event_loop()
+
+database = Database(Telegram.DATABASE_URL, Telegram.SESSION_NAME)
+
+async def configure_stream_secret():
+    """Load the persistent stream-token secret (env override, else database)."""
+    secret = Server.STREAM_SECRET
+    if secret:
+        print("Using STREAM_SECRET from environment for stream links")
+    else:
+        try:
+            secret = await database.get_or_create_stream_secret()
+            print("Using stream signing secret stored in the database")
+        except Exception:
+            logging.error(
+                "Could not load the stream secret from the database, using an "
+                "ephemeral one for this run. Set STREAM_SECRET for stable links.",
+                exc_info=True,
+            )
+            secret = secrets.token_urlsafe(32)
+    configure_secret(secret)
 
 async def start_services():
     print()
@@ -45,6 +68,10 @@ async def start_services():
     print()
     print("---------------------- Initializing Clients ----------------------")
     await initialize_clients()
+    print("------------------------------ DONE ------------------------------")
+    print()
+    print("-------------------- Configuring Stream Secret --------------------")
+    await configure_stream_secret()
     print("------------------------------ DONE ------------------------------")
     print()
     print("--------------------- Initializing Web Server ---------------------")

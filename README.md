@@ -162,6 +162,8 @@ PUBLIC_URL = https://files.example.com
 - `NO_PORT`: (True/False) Hide port from generated links (useful behind reverse proxy). Defaults to `False`.
 - `PUBLIC_URL`: Full public base URL for generated links (for reverse proxies/CDNs), e.g. `https://files.example.com`. When set, this takes precedence over `FQDN`, `PORT`, and `NO_PORT`. `str`
 - `HAS_SSL`: (can be either `True` or `False`) If you want the generated links in https format. Defaults to `False`.
+- `STREAM_REDIRECT_TTL`: Seconds a short `/dl/<id>` link may be cached before the database is consulted again. Defaults to `3600`. `int`
+- `STREAM_SECRET`: Optional signing key for the self-contained `/stream/<token>` URLs. When unset, a random secret is generated once and stored in the database, so links stay valid across restarts and `API_HASH` changes. `str`
 
 </details>
 

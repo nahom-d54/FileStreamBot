@@ -3,15 +3,58 @@ import math
 import logging
 import mimetypes
 import traceback
+import urllib.parse
 from aiohttp import web
 from aiohttp.http_exceptions import BadStatusLine
 from FileStream.bot import multi_clients, work_loads, FileStream
 from FileStream.config import Telegram, Server
 from FileStream.server.exceptions import FIleNotFound, InvalidHash
 from FileStream import utils, StartTime, __version__
+from FileStream.utils.database import Database
 from FileStream.utils.render_template import render_page
+from FileStream.utils.stream_link import (
+    TOKEN_VERSION,
+    build_stream_token,
+    parse_stream_token,
+)
+
+db = Database(Telegram.DATABASE_URL, Telegram.SESSION_NAME)
 
 routes = web.RouteTableDef()
+
+# Short links redirect to a self-contained stream URL. Caching the generated
+# token here (and letting clients cache the redirect) avoids hitting the
+# database on every range request made by a media player.
+STREAM_REDIRECT_TTL = Server.STREAM_REDIRECT_TTL
+STREAM_REDIRECT_CACHE_SIZE = 2048
+_token_cache = {}
+
+
+def _cache_stream_token(db_id: str, token: str) -> None:
+    now = time.time()
+    if len(_token_cache) >= STREAM_REDIRECT_CACHE_SIZE:
+        for key, (expires_at, _) in list(_token_cache.items()):
+            if expires_at <= now:
+                del _token_cache[key]
+        while len(_token_cache) >= STREAM_REDIRECT_CACHE_SIZE:
+            del _token_cache[next(iter(_token_cache))]
+    _token_cache[db_id] = (now + STREAM_REDIRECT_TTL, token)
+
+
+async def get_stream_token(db_id: str) -> str:
+    cached = _token_cache.get(db_id)
+    if cached and cached[0] > time.time():
+        return cached[1]
+
+    file_info = await db.get_file(db_id)
+    token = build_stream_token(file_info)
+    _cache_stream_token(db_id, token)
+    return token
+
+
+def _stream_location(token: str) -> str:
+    return urllib.parse.urljoin(Server.URL, f"stream/{token}")
+
 
 @routes.get("/status", allow_head=True)
 async def root_route_handler(_):
@@ -32,7 +75,7 @@ async def root_route_handler(_):
     )
 
 @routes.get("/watch/{path}", allow_head=True)
-async def stream_handler(request: web.Request):
+async def watch_handler(request: web.Request):
     try:
         path = request.match_info["path"]
         return web.Response(text=await render_page(path), content_type='text/html')
@@ -45,10 +88,38 @@ async def stream_handler(request: web.Request):
 
 
 @routes.get("/dl/{path}", allow_head=True)
-async def stream_handler(request: web.Request):
+async def download_handler(request: web.Request):
+    """Short button URL: resolve the database id once and redirect to the
+    self-contained stream URL that no longer needs any database access."""
     try:
         path = request.match_info["path"]
-        return await media_streamer(request, path)
+        if path.startswith(f"{TOKEN_VERSION}."):
+            token = path
+        else:
+            token = await get_stream_token(path)
+
+        response = web.HTTPFound(_stream_location(token))
+        response.headers["Cache-Control"] = f"public, max-age={STREAM_REDIRECT_TTL}"
+        return response
+    except InvalidHash as e:
+        raise web.HTTPForbidden(text=e.message)
+    except FIleNotFound as e:
+        raise web.HTTPNotFound(text=e.message)
+    except (AttributeError, BadStatusLine, ConnectionResetError):
+        pass
+    except Exception as e:
+        traceback.print_exc()
+        logging.critical(e.with_traceback(None))
+        logging.debug(traceback.format_exc())
+        raise web.HTTPInternalServerError(text=str(e))
+
+
+@routes.get("/stream/{path}", allow_head=True)
+async def token_stream_handler(request: web.Request):
+    """Stream directly from a self-contained token, without touching the db."""
+    try:
+        stream_ref = parse_stream_token(request.match_info["path"])
+        return await media_streamer(request, stream_ref=stream_ref)
     except InvalidHash as e:
         raise web.HTTPForbidden(text=e.message)
     except FIleNotFound as e:
@@ -63,12 +134,11 @@ async def stream_handler(request: web.Request):
 
 class_cache = {}
 
-async def media_streamer(request: web.Request, db_id: str):
-    range_header = request.headers.get("Range", 0)
-    
+
+def _pick_streamer(request: web.Request):
     index = min(work_loads, key=work_loads.get)
     faster_client = multi_clients[index]
-    
+
     if Telegram.MULTI_CLIENT:
         logging.info(f"Client {index} is now serving {request.headers.get('X-FORWARDED-FOR',request.remote)}")
 
@@ -79,10 +149,28 @@ async def media_streamer(request: web.Request, db_id: str):
         logging.debug(f"Creating new ByteStreamer object for client {index}")
         tg_connect = utils.ByteStreamer(faster_client)
         class_cache[faster_client] = tg_connect
-    logging.debug("before calling get_file_properties")
-    file_id = await tg_connect.get_file_properties(db_id, multi_clients)
-    logging.debug("after calling get_file_properties")
-    
+
+    return index, tg_connect
+
+
+async def media_streamer(request: web.Request, db_id: str = None, stream_ref=None):
+    range_header = request.headers.get("Range", 0)
+
+    index, tg_connect = _pick_streamer(request)
+
+    if stream_ref is not None:
+        file_id = stream_ref.file_id_for(tg_connect.client)
+        if file_id is None:
+            # Multi-client tokens normally carry every client's file id. Fall
+            # back to the database for old records or unknown clients.
+            if not stream_ref.db_id:
+                raise InvalidHash
+            file_id = await tg_connect.get_file_properties(stream_ref.db_id, multi_clients)
+    else:
+        logging.debug("before calling get_file_properties")
+        file_id = await tg_connect.get_file_properties(db_id, multi_clients)
+        logging.debug("after calling get_file_properties")
+
     file_size = file_id.file_size
 
     if range_header:

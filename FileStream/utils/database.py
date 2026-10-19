@@ -1,4 +1,5 @@
 import pymongo
+import secrets
 import time
 import motor.motor_asyncio
 from bson.objectid import ObjectId
@@ -12,6 +13,22 @@ class Database:
         self.col = self.db.users
         self.black = self.db.blacklist
         self.file = self.db.file
+        self.config = self.db.config
+
+# ---------------------[ STREAM SECRET ]---------------------#
+
+    async def get_or_create_stream_secret(self):
+        """Return the persistent stream-token secret, generating it once if needed."""
+        try:
+            doc = await self.config.find_one_and_update(
+                {"_id": "stream_secret"},
+                {"$setOnInsert": {"value": secrets.token_urlsafe(32)}},
+                upsert=True,
+                return_document=pymongo.ReturnDocument.AFTER,
+            )
+        except pymongo.errors.DuplicateKeyError:
+            doc = await self.config.find_one({"_id": "stream_secret"})
+        return doc["value"]
 
 #---------------------[ NEW USER ]---------------------#
     def new_user(self, id):
