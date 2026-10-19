@@ -8,6 +8,7 @@ from FileStream.utils.bot_utils import gen_link
 from FileStream.utils.database import Database
 from FileStream.utils.human_readable import humanbytes
 from FileStream.utils.revocation import mark_revoked
+from FileStream.utils.stream_link import short_stream_url
 from FileStream.server.exceptions import FIleNotFound
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from pyrogram.file_id import FileId, FileType, PHOTO_TYPES
@@ -136,7 +137,7 @@ async def gen_file_menu(_id, file_list_no, update: CallbackQuery):
         file_type = "Unknown"
 
     page_link = f"{Server.URL}watch/{myfile_info['_id']}"
-    stream_link = f"{Server.URL}dl/{myfile_info['_id']}"
+    stream_link = short_stream_url(myfile_info['_id'])
     if "video" in file_type.lower():
         MYFILES_BUTTONS = InlineKeyboardMarkup(
             [

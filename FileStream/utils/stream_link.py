@@ -13,7 +13,8 @@ be forged. The signing key comes from ``configure_secret`` (``STREAM_SECRET`` or
 a value generated once and stored in the database), so it is stable across
 restarts and does not depend on ``API_HASH``. Tokens also embed an issue time
 and an expiry (``STREAM_TOKEN_TTL``, 24h by default) so a copied URL stops
-working on its own.
+working on its own. The short ``/dl/<db_id>`` links can be given their own
+signed expiry through ``SHORT_LINK_TTL`` (0 keeps them permanent).
 """
 
 from __future__ import annotations
@@ -105,6 +106,44 @@ def stream_url(file_info: dict) -> str:
     return urllib.parse.urljoin(
         Server.URL, f"stream/{build_stream_token(file_info)}"
     )
+
+
+def short_stream_url(db_id) -> str:
+    """Short ``/dl/<db_id>`` URL used in buttons and messages.
+
+    With ``SHORT_LINK_TTL`` unset (0) this is the plain permanent link. When the
+    TTL is set, the URL carries a signed expiry and stops working once it
+    passes, so shared links cannot be used forever.
+    """
+    db_id = str(db_id)
+    base = urllib.parse.urljoin(Server.URL, f"dl/{db_id}")
+    ttl = int(getattr(Server, "SHORT_LINK_TTL", 0) or 0)
+    if ttl <= 0:
+        return base
+    expires_at = int(time.time()) + ttl
+    signature = _sign(f"short:{db_id}:{expires_at}")
+    return f"{base}?e={expires_at}&s={signature}"
+
+
+def verify_short_link(db_id, expires_at, signature) -> None:
+    """Validate the signed expiry of a short ``/dl`` link.
+
+    Raises ``InvalidHash`` for missing/forged signatures and ``LinkExpired``
+    once the expiry has passed.
+    """
+    if not expires_at or not signature:
+        raise InvalidHash
+    try:
+        expires_at_int = int(expires_at)
+    except (TypeError, ValueError):
+        raise InvalidHash
+
+    expected = _sign(f"short:{str(db_id)}:{expires_at_int}")
+    if not hmac.compare_digest(str(signature), expected):
+        raise InvalidHash
+
+    if expires_at_int <= int(time.time()):
+        raise LinkExpired
 
 
 class StreamRef:

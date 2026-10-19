@@ -17,6 +17,7 @@ from FileStream.utils.stream_link import (
     TOKEN_VERSION,
     build_stream_token,
     parse_stream_token,
+    verify_short_link,
 )
 
 db = Database(Telegram.DATABASE_URL, Telegram.SESSION_NAME)
@@ -103,6 +104,8 @@ async def download_handler(request: web.Request):
         if path.startswith(f"{TOKEN_VERSION}."):
             token = path
         else:
+            if Server.SHORT_LINK_TTL > 0:
+                verify_short_link(path, request.query.get("e"), request.query.get("s"))
             token = await get_stream_token(path)
 
         response = web.HTTPFound(_stream_location(token))
@@ -110,6 +113,8 @@ async def download_handler(request: web.Request):
         return response
     except InvalidHash as e:
         raise web.HTTPForbidden(text=e.message)
+    except LinkExpired as e:
+        raise web.HTTPGone(text=e.message)
     except FIleNotFound as e:
         raise web.HTTPNotFound(text=e.message)
     except (AttributeError, BadStatusLine, ConnectionResetError):
