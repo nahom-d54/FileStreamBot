@@ -7,6 +7,7 @@ from FileStream.utils.translation import LANG, BUTTON
 from FileStream.utils.bot_utils import gen_link
 from FileStream.utils.database import Database
 from FileStream.utils.human_readable import humanbytes
+from FileStream.utils.revocation import mark_revoked
 from FileStream.server.exceptions import FIleNotFound
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from pyrogram.file_id import FileId, FileType, PHOTO_TYPES
@@ -175,6 +176,7 @@ async def delete_user_file(_id, file_list_no: int, update:CallbackQuery):
         return
 
     await db.delete_one_file(myfile_info['_id'])
+    mark_revoked(myfile_info['_id'])
     await db.count_links(update.from_user.id, "-")
     await update.message.edit_caption(
             caption= "**Fɪʟᴇ Dᴇʟᴇᴛᴇᴅ Sᴜᴄᴄᴇssғᴜʟʟʏ !**" + update.message.caption.replace("Cᴏɴғɪʀᴍ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ᴅᴇʟᴇᴛᴇ ᴛʜᴇ Fɪʟᴇ", ""),
@@ -190,6 +192,7 @@ async def delete_user_filex(_id, update:CallbackQuery):
         return
 
     await db.delete_one_file(myfile_info['_id'])
+    mark_revoked(myfile_info['_id'])
     await db.count_links(update.from_user.id, "-")
     await update.message.edit_caption(
             caption= "**Fɪʟᴇ Dᴇʟᴇᴛᴇᴅ Sᴜᴄᴄᴇssғᴜʟʟʏ !**\n\n",

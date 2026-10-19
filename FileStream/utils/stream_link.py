@@ -11,7 +11,9 @@ The token is a compact JSON payload (file ids per client, size, mime type and
 file name) encoded as URL-safe base64 and signed with HMAC-SHA256 so it cannot
 be forged. The signing key comes from ``configure_secret`` (``STREAM_SECRET`` or
 a value generated once and stored in the database), so it is stable across
-restarts and does not depend on ``API_HASH``.
+restarts and does not depend on ``API_HASH``. Tokens also embed an issue time
+and an expiry (``STREAM_TOKEN_TTL``, 24h by default) so a copied URL stops
+working on its own.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ import base64
 import hashlib
 import hmac
 import json
+import time
 import urllib.parse
 from typing import Any, Dict, Optional
 
@@ -27,7 +30,7 @@ from pyrogram.file_id import FileId
 
 from FileStream.bot import FileStream
 from FileStream.config import Server
-from FileStream.server.exceptions import InvalidHash
+from FileStream.server.exceptions import InvalidHash, LinkExpired
 
 TOKEN_VERSION = "s1"
 _SIGNATURE_LENGTH = 16
@@ -79,13 +82,18 @@ def build_stream_token(file_info: dict) -> str:
     if primary_file_id:
         file_ids.setdefault(str(getattr(FileStream, "id", "")), primary_file_id)
 
+    issued_at = int(time.time())
     payload = {
         "d": str(file_info["_id"]),
         "s": int(file_info.get("file_size") or 0),
         "m": file_info.get("mime_type") or "application/octet-stream",
         "n": file_info.get("file_name") or "",
         "f": file_ids,
+        "t": issued_at,
     }
+    ttl = int(getattr(Server, "STREAM_TOKEN_TTL", 0) or 0)
+    if ttl > 0:
+        payload["e"] = issued_at + ttl
     encoded = _b64encode(
         json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     )
@@ -102,13 +110,23 @@ def stream_url(file_info: dict) -> str:
 class StreamRef:
     """Media reference decoded from a stream token."""
 
-    __slots__ = ("db_id", "file_size", "mime_type", "file_name", "_file_ids")
+    __slots__ = (
+        "db_id",
+        "file_size",
+        "mime_type",
+        "file_name",
+        "issued_at",
+        "expires_at",
+        "_file_ids",
+    )
 
     def __init__(self, payload: Dict[str, Any]):
         self.db_id = payload.get("d") or None
         self.file_size = int(payload.get("s") or 0)
         self.mime_type = payload.get("m") or "application/octet-stream"
         self.file_name = payload.get("n") or ""
+        self.issued_at = payload.get("t")
+        self.expires_at = payload.get("e")
         self._file_ids = payload.get("f") or {}
 
     def file_id_for(self, client) -> Optional[FileId]:
@@ -127,7 +145,11 @@ class StreamRef:
 
 
 def parse_stream_token(token: str) -> StreamRef:
-    """Validate and decode a stream token, raising ``InvalidHash`` when invalid."""
+    """Validate and decode a stream token.
+
+    Raises ``InvalidHash`` for malformed/forged tokens and ``LinkExpired`` when
+    the embedded expiry has passed.
+    """
     try:
         version, encoded, signature = token.split(".")
     except ValueError:
@@ -145,5 +167,9 @@ def parse_stream_token(token: str) -> StreamRef:
 
     if not isinstance(payload, dict) or not payload.get("f"):
         raise InvalidHash
+
+    expires_at = payload.get("e")
+    if expires_at is not None and int(expires_at) <= int(time.time()):
+        raise LinkExpired
 
     return StreamRef(payload)

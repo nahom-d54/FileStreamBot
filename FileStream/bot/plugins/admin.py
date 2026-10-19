@@ -15,6 +15,7 @@ from FileStream.config import Server, Telegram
 from FileStream.server.exceptions import FIleNotFound
 from FileStream.utils.broadcast_helper import send_msg
 from FileStream.utils.database import Database
+from FileStream.utils.revocation import mark_revoked
 
 db = Database(Telegram.DATABASE_URL, Telegram.SESSION_NAME)
 broadcast_ids = {}
@@ -151,6 +152,7 @@ async def sts(c: Client, m: Message):
         )
         return
     await db.delete_one_file(file_info['_id'])
+    mark_revoked(file_info['_id'])
     await db.count_links(file_info['user_id'], "-")
     await m.reply_text(
         text=f"**Fɪʟᴇ Dᴇʟᴇᴛᴇᴅ Sᴜᴄᴄᴇssғᴜʟʟʏ !** ",

@@ -8,10 +8,11 @@ from aiohttp import web
 from aiohttp.http_exceptions import BadStatusLine
 from FileStream.bot import multi_clients, work_loads, FileStream
 from FileStream.config import Telegram, Server
-from FileStream.server.exceptions import FIleNotFound, InvalidHash
+from FileStream.server.exceptions import FIleNotFound, InvalidHash, LinkExpired
 from FileStream import utils, StartTime, __version__
 from FileStream.utils.database import Database
 from FileStream.utils.render_template import render_page
+from FileStream.utils.revocation import is_revoked
 from FileStream.utils.stream_link import (
     TOKEN_VERSION,
     build_stream_token,
@@ -26,6 +27,9 @@ routes = web.RouteTableDef()
 # token here (and letting clients cache the redirect) avoids hitting the
 # database on every range request made by a media player.
 STREAM_REDIRECT_TTL = Server.STREAM_REDIRECT_TTL
+if Server.STREAM_TOKEN_TTL > 0:
+    # Never serve a cached redirect whose signed URL may already be expired.
+    STREAM_REDIRECT_TTL = min(STREAM_REDIRECT_TTL, Server.STREAM_TOKEN_TTL)
 STREAM_REDIRECT_CACHE_SIZE = 2048
 _token_cache = {}
 
@@ -42,6 +46,9 @@ def _cache_stream_token(db_id: str, token: str) -> None:
 
 
 async def get_stream_token(db_id: str) -> str:
+    if is_revoked(db_id):
+        raise FIleNotFound
+
     cached = _token_cache.get(db_id)
     if cached and cached[0] > time.time():
         return cached[1]
@@ -119,9 +126,13 @@ async def token_stream_handler(request: web.Request):
     """Stream directly from a self-contained token, without touching the db."""
     try:
         stream_ref = parse_stream_token(request.match_info["path"])
+        if is_revoked(stream_ref.db_id):
+            raise FIleNotFound
         return await media_streamer(request, stream_ref=stream_ref)
     except InvalidHash as e:
         raise web.HTTPForbidden(text=e.message)
+    except LinkExpired as e:
+        raise web.HTTPGone(text=e.message)
     except FIleNotFound as e:
         raise web.HTTPNotFound(text=e.message)
     except (AttributeError, BadStatusLine, ConnectionResetError):

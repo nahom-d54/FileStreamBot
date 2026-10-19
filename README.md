@@ -164,6 +164,7 @@ PUBLIC_URL = https://files.example.com
 - `HAS_SSL`: (can be either `True` or `False`) If you want the generated links in https format. Defaults to `False`.
 - `STREAM_REDIRECT_TTL`: Seconds a short `/dl/<id>` link may be cached before the database is consulted again. Defaults to `3600`. `int`
 - `STREAM_SECRET`: Optional signing key for the self-contained `/stream/<token>` URLs. When unset, a random secret is generated once and stored in the database, so links stay valid across restarts and `API_HASH` changes. `str`
+- `STREAM_TOKEN_TTL`: Lifetime of a signed `/stream/<token>` URL in seconds. Defaults to `86400` (24 hours); set to `0` to disable expiry. `int`
 
 </details>
 

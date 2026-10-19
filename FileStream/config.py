@@ -55,6 +55,8 @@ class Server:
     # random one is generated once and stored in the database, so links survive
     # restarts and rotating API_HASH.
     STREAM_SECRET = str(env.get("STREAM_SECRET", ""))
+    # Lifetime of a signed stream URL in seconds. Set to 0 to never expire.
+    STREAM_TOKEN_TTL = int(env.get("STREAM_TOKEN_TTL", "86400"))
     NO_PORT = str(env.get("NO_PORT", "0").lower()) in ("1", "true", "t", "yes", "y")
     FQDN = str(env.get("FQDN", BIND_ADDRESS))
     PUBLIC_URL = _normalize_base_url(str(env.get("PUBLIC_URL", "")), HAS_SSL)
