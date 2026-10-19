@@ -4,8 +4,8 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from FileStream.utils.translation import LANG
 from FileStream.utils.database import Database
 from FileStream.utils.human_readable import humanbytes
-from FileStream.utils.stream_link import short_stream_url
-from FileStream.config import Telegram, Server
+from FileStream.utils.stream_link import short_stream_url, watch_url
+from FileStream.config import Telegram
 from FileStream.bot import FileStream
 import asyncio
 from typing import (
@@ -86,7 +86,7 @@ async def gen_link(_id):
     file_size = humanbytes(file_info['file_size'])
     mime_type = file_info['mime_type']
 
-    page_link = f"{Server.URL}watch/{_id}"
+    page_link = watch_url(_id)
     stream_link = short_stream_url(_id)
     file_link = f"https://t.me/{FileStream.username}?start=file_{_id}"
 
@@ -118,7 +118,7 @@ async def gen_linkx(m:Message , _id, name: list):
     mime_type = file_info['mime_type']
     file_size = humanbytes(file_info['file_size'])
 
-    page_link = f"{Server.URL}watch/{_id}"
+    page_link = watch_url(_id)
     stream_link = short_stream_url(_id)
     file_link = f"https://t.me/{FileStream.username}?start=file_{_id}"
 

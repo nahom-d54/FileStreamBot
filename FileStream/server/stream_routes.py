@@ -17,7 +17,7 @@ from FileStream.utils.stream_link import (
     TOKEN_VERSION,
     build_stream_token,
     parse_stream_token,
-    verify_short_link,
+    verify_link,
 )
 
 db = Database(Telegram.DATABASE_URL, Telegram.SESSION_NAME)
@@ -28,9 +28,13 @@ routes = web.RouteTableDef()
 # token here (and letting clients cache the redirect) avoids hitting the
 # database on every range request made by a media player.
 STREAM_REDIRECT_TTL = Server.STREAM_REDIRECT_TTL
-if Server.STREAM_TOKEN_TTL > 0:
+_token_ttl = (
+    Server.LINK_EXPIRY_HOURS * 3600 if Server.LINK_EXPIRY_HOURS > 0
+    else Server.STREAM_TOKEN_TTL
+)
+if _token_ttl > 0:
     # Never serve a cached redirect whose signed URL may already be expired.
-    STREAM_REDIRECT_TTL = min(STREAM_REDIRECT_TTL, Server.STREAM_TOKEN_TTL)
+    STREAM_REDIRECT_TTL = min(STREAM_REDIRECT_TTL, _token_ttl)
 STREAM_REDIRECT_CACHE_SIZE = 2048
 _token_cache = {}
 
@@ -86,9 +90,13 @@ async def root_route_handler(_):
 async def watch_handler(request: web.Request):
     try:
         path = request.match_info["path"]
+        if Server.LINK_EXPIRY_HOURS > 0:
+            verify_link("watch", path, request.query.get("e"), request.query.get("s"))
         return web.Response(text=await render_page(path), content_type='text/html')
     except InvalidHash as e:
         raise web.HTTPForbidden(text=e.message)
+    except LinkExpired as e:
+        raise web.HTTPGone(text=e.message)
     except FIleNotFound as e:
         raise web.HTTPNotFound(text=e.message)
     except (AttributeError, BadStatusLine, ConnectionResetError):
@@ -104,8 +112,8 @@ async def download_handler(request: web.Request):
         if path.startswith(f"{TOKEN_VERSION}."):
             token = path
         else:
-            if Server.SHORT_LINK_TTL > 0:
-                verify_short_link(path, request.query.get("e"), request.query.get("s"))
+            if Server.LINK_EXPIRY_HOURS > 0:
+                verify_link("dl", path, request.query.get("e"), request.query.get("s"))
             token = await get_stream_token(path)
 
         response = web.HTTPFound(_stream_location(token))

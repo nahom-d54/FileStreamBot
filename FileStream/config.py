@@ -56,9 +56,11 @@ class Server:
     # restarts and rotating API_HASH.
     STREAM_SECRET = str(env.get("STREAM_SECRET", ""))
     # Lifetime of a signed stream URL in seconds. Set to 0 to never expire.
+    # Only used when LINK_EXPIRY_HOURS is 0.
     STREAM_TOKEN_TTL = int(env.get("STREAM_TOKEN_TTL", "86400"))
-    # Lifetime of the short /dl/<id> link in seconds. 0 keeps it permanent.
-    SHORT_LINK_TTL = int(env.get("SHORT_LINK_TTL", "0"))
+    # When set (> 0), every generated link (watch page, short /dl link and the
+    # signed stream URL) expires after this many hours. 0 disables it.
+    LINK_EXPIRY_HOURS = int(env.get("LINK_EXPIRY_HOURS", "0"))
     NO_PORT = str(env.get("NO_PORT", "0").lower()) in ("1", "true", "t", "yes", "y")
     FQDN = str(env.get("FQDN", BIND_ADDRESS))
     PUBLIC_URL = _normalize_base_url(str(env.get("PUBLIC_URL", "")), HAS_SSL)

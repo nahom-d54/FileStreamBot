@@ -11,10 +11,9 @@ The token is a compact JSON payload (file ids per client, size, mime type and
 file name) encoded as URL-safe base64 and signed with HMAC-SHA256 so it cannot
 be forged. The signing key comes from ``configure_secret`` (``STREAM_SECRET`` or
 a value generated once and stored in the database), so it is stable across
-restarts and does not depend on ``API_HASH``. Tokens also embed an issue time
-and an expiry (``STREAM_TOKEN_TTL``, 24h by default) so a copied URL stops
-working on its own. The short ``/dl/<db_id>`` links can be given their own
-signed expiry through ``SHORT_LINK_TTL`` (0 keeps them permanent).
+restarts and does not depend on ``API_HASH``. Every generated link can be given
+a lifetime through ``LINK_EXPIRY_HOURS``: when set it applies to the watch page,
+the short ``/dl`` link and the signed stream URL itself (0 disables it).
 """
 
 from __future__ import annotations
@@ -92,7 +91,7 @@ def build_stream_token(file_info: dict) -> str:
         "f": file_ids,
         "t": issued_at,
     }
-    ttl = int(getattr(Server, "STREAM_TOKEN_TTL", 0) or 0)
+    ttl = _token_ttl_seconds()
     if ttl > 0:
         payload["e"] = issued_at + ttl
     encoded = _b64encode(
@@ -108,25 +107,47 @@ def stream_url(file_info: dict) -> str:
     )
 
 
-def short_stream_url(db_id) -> str:
-    """Short ``/dl/<db_id>`` URL used in buttons and messages.
+def _link_ttl_seconds() -> int:
+    hours = int(getattr(Server, "LINK_EXPIRY_HOURS", 0) or 0)
+    return hours * 3600 if hours > 0 else 0
 
-    With ``SHORT_LINK_TTL`` unset (0) this is the plain permanent link. When the
-    TTL is set, the URL carries a signed expiry and stops working once it
-    passes, so shared links cannot be used forever.
+
+def _token_ttl_seconds() -> int:
+    """Lifetime of the signed stream URL.
+
+    ``LINK_EXPIRY_HOURS`` applies to every generated link when set; otherwise
+    the dedicated ``STREAM_TOKEN_TTL`` is used.
     """
+    link_ttl = _link_ttl_seconds()
+    if link_ttl > 0:
+        return link_ttl
+    return int(getattr(Server, "STREAM_TOKEN_TTL", 0) or 0)
+
+
+def _signed_link(kind: str, db_id) -> str:
+    """Build a ``watch``/``dl`` link, adding a signed expiry when enabled."""
     db_id = str(db_id)
-    base = urllib.parse.urljoin(Server.URL, f"dl/{db_id}")
-    ttl = int(getattr(Server, "SHORT_LINK_TTL", 0) or 0)
+    base = urllib.parse.urljoin(Server.URL, f"{kind}/{db_id}")
+    ttl = _link_ttl_seconds()
     if ttl <= 0:
         return base
     expires_at = int(time.time()) + ttl
-    signature = _sign(f"short:{db_id}:{expires_at}")
+    signature = _sign(f"{kind}:{db_id}:{expires_at}")
     return f"{base}?e={expires_at}&s={signature}"
 
 
-def verify_short_link(db_id, expires_at, signature) -> None:
-    """Validate the signed expiry of a short ``/dl`` link.
+def short_stream_url(db_id) -> str:
+    """Short ``/dl/<db_id>`` URL used in buttons and messages."""
+    return _signed_link("dl", db_id)
+
+
+def watch_url(db_id) -> str:
+    """``/watch/<db_id>`` page URL used in buttons and messages."""
+    return _signed_link("watch", db_id)
+
+
+def verify_link(kind: str, db_id, expires_at, signature) -> None:
+    """Validate the signed expiry of a ``watch``/``dl`` link.
 
     Raises ``InvalidHash`` for missing/forged signatures and ``LinkExpired``
     once the expiry has passed.
@@ -138,7 +159,7 @@ def verify_short_link(db_id, expires_at, signature) -> None:
     except (TypeError, ValueError):
         raise InvalidHash
 
-    expected = _sign(f"short:{str(db_id)}:{expires_at_int}")
+    expected = _sign(f"{kind}:{str(db_id)}:{expires_at_int}")
     if not hmac.compare_digest(str(signature), expected):
         raise InvalidHash
 
